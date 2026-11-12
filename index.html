@@ -98,7 +98,7 @@
     <div class="row" style="margin-top:8px">
       <label class="chk"><input id="pullMode" type="checkbox"> Pull mode: rpm, MAP, throttle, timing and O2 only, with faster adapter timing</label>
     </div>
-    <div class="muted" id="pullNote" style="margin-top:4px" hidden>Trims, temperatures and speed stop updating while pull mode is on. Turn it off for idle and cruise tests.</div>
+    <div class="muted" id="pullNote" style="margin-top:4px" hidden>Trims and temperatures stop updating while pull mode is on. Fuel status and speed refresh about every 9 s. Turn it off for idle and cruise tests.</div>
     <div class="row" style="margin-top:8px">
       <button id="btnCsv" disabled>Export CSV</button>
       <button id="btnCopy" disabled>Copy CSV</button>
@@ -446,6 +446,9 @@ async function buildChannels(sup) {
     const p = +pid;
     if (!sup.has(p)) continue;
     const ch = { cmd: '01' + hex2(p), pid: p, key: def.key, dec: def.dec };
+    if (def.fast) ch.timeout = FAST_TIMEOUT;
+    // Two modules answer the TPS request ~150 ms apart; ask the adapter to stop after the first reply.
+    if (p === 0x11) { ch.plain = ch.cmd; ch.cmd += '1'; }
     (def.fast ? fast : slow).push(ch);
   }
   // O2 sensors: PID 13 tells which of PIDs 14-1B exist
@@ -457,6 +460,7 @@ async function buildChannels(sup) {
   for (const i of present) {
     const key = 'o2_' + o2Name(i).slice(3).toLowerCase();
     const ch = { cmd: '01' + hex2(0x14 + i), pid: 0x14 + i, key, label: o2Name(i), dec: b => b[0] / 200, upstream: i % 4 === 0 };
+    if (ch.upstream) ch.timeout = FAST_TIMEOUT;
     o2Keys.push({ key, label: o2Name(i), upstream: ch.upstream });
     (ch.upstream ? fast : slow).push(ch);
   }
@@ -467,21 +471,30 @@ async function buildChannels(sup) {
   buildGauges();
   buildReviewChannels();
 }
+const FAST_TIMEOUT = 800;   // core readings normally answer in ~300 ms; don't stall 2.5 s on a lost reply
 async function query(ch) {
-  const lines = await elm.cmd(ch.cmd, 2500);
+  const lines = await elm.cmd(ch.cmd, ch.timeout || 2500);
   let v = null;
   if (ch.parse) v = ch.parse(lines);
   else { const b = parse01(lines, ch.pid); if (b && b.length) v = ch.dec(b); }
+  if ((v === null || Number.isNaN(v)) && ch.plain && ch.cmd !== ch.plain) {
+    log('!', `${ch.cmd} gave no data; falling back to ${ch.plain}`);   // adapter may not support the response-count suffix
+    ch.cmd = ch.plain; delete ch.plain;
+  }
   if (v === null || Number.isNaN(v)) return;
   S[ch.key] = v; SEEN[ch.key] = performance.now(); okCount++;
 }
 async function pollLoop() {
-  let si = 0, errs = 0;
+  let si = 0, errs = 0, row = 0, xi = 0;
   const myElm = elm;
   while (polling && elm === myElm) {
     try {
       for (const ch of fast) { if (!polling) break; await query(ch); }
-      if (!pullMode && slow.length && polling) await query(slow[si++ % slow.length]);
+      if (!pullMode) { if (slow.length && polling) await query(slow[si++ % slow.length]); }
+      else if (row++ % 2 === 0 && polling) {   // pull mode: fuel status and speed, one every other row
+        const extras = slow.filter(c => c.key === 'loop' || c.key === 'speed');
+        if (extras.length) await query(extras[xi++ % extras.length]);
+      }
       sample();
       errs = 0;
     } catch (e) {

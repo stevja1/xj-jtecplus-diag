@@ -96,6 +96,10 @@
       <button id="btnMark" disabled>Add marker</button>
     </div>
     <div class="row" style="margin-top:8px">
+      <label class="chk"><input id="pullMode" type="checkbox"> Pull mode: rpm, MAP, throttle, timing and O2 only, with faster adapter timing</label>
+    </div>
+    <div class="muted" id="pullNote" style="margin-top:4px" hidden>Trims, temperatures and speed stop updating while pull mode is on. Turn it off for idle and cruise tests.</div>
+    <div class="row" style="margin-top:8px">
       <button id="btnCsv" disabled>Export CSV</button>
       <button id="btnCopy" disabled>Copy CSV</button>
       <button id="btnClearRec" disabled>Clear recording</button>
@@ -419,7 +423,7 @@ const GAUGE_DEFS = [
 function trimCls(v) { const a = Math.abs(v); return a >= 15 ? 'bad' : a >= 10 ? 'warn' : ''; }
 function o2Cls(v) { return (S.tps >= 70 && S.rpm > 1500) ? (v < 0.6 ? 'bad' : v < 0.8 ? 'warn' : 'ok') : ''; }
 
-let transport = null, elm = null, polling = false, fast = [], slow = [], o2Keys = [];
+let transport = null, elm = null, polling = false, pullMode = false, fast = [], slow = [], o2Keys = [];
 const S = {};           // latest values
 const SEEN = {};        // last update time per key
 let okCount = 0, rateT = performance.now();
@@ -477,7 +481,7 @@ async function pollLoop() {
   while (polling && elm === myElm) {
     try {
       for (const ch of fast) { if (!polling) break; await query(ch); }
-      if (slow.length && polling) await query(slow[si++ % slow.length]);
+      if (!pullMode && slow.length && polling) await query(slow[si++ % slow.length]);
       sample();
       errs = 0;
     } catch (e) {
@@ -671,9 +675,19 @@ function setConnectedUI(on) {
   $('#btnRec').disabled = !on && !rec.on; $('#btnMark').disabled = !on;
   $('#btnCodes').disabled = !on; $('#btnClearCodes').disabled = !on;
 }
+// Faster adapter timing for pull mode: aggressive adaptive timing and a 100 ms response window
+// (default is 200 ms, and the ELM waits that long after every J1850 reply).
+async function applySpeed() {
+  if (!elm) return;
+  const cmds = pullMode ? ['ATAT2', 'ATST19'] : ['ATAT1', 'ATST32'];
+  for (const c of cmds) await elm.cmd(c).catch(e => log('!', e.message));
+  log('!', pullMode ? 'Pull mode on' : 'Pull mode off');
+}
+$('#pullMode').onchange = e => { pullMode = e.target.checked; $('#pullNote').hidden = !pullMode; applySpeed(); };
 async function setupSession() {
   setStatus('Starting adapter…');
   await elm.init();
+  if (pullMode) await applySpeed();
   setStatus('Talking to the Jeep…');
   const sup = await readSupported();
   if (!sup.size) throw new Error('No answer from the engine computer. Is the ignition on?');

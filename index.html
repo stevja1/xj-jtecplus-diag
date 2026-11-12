@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>XJ Diag</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23123447'/%3E%3Cpath d='M3 11l3-4 3 2 4-5' stroke='%234cc2ff' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg:#0f1115; --card:#191c22; --card2:#20242b; --line:#2c313a;
+    --text:#ece9e4; --muted:#9aa0a6; --accent:#4cc2ff;
+    --ok:#3ecf8e; --warn:#f5b642; --bad:#ff5d5d;
+    --c1:#4cc2ff; --c2:#f5b642; --c3:#3ecf8e; --c4:#ff7ab6;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--text);
+    font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--line);
+    padding:10px 14px calc(10px) 14px; display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; }
+  header h1 { font-size:18px; margin:0; font-weight:600; }
+  header .sub { color:var(--muted); font-size:13px; }
+  .spacer { flex:1; }
+  .status { font-size:13px; padding:4px 10px; border-radius:999px; background:var(--card2); color:var(--muted); }
+  .status.ok { color:var(--ok); } .status.warn { color:var(--warn); } .status.bad { color:var(--bad); }
+  button, .btn { font:inherit; font-size:15px; color:var(--text); background:var(--card2); border:1px solid var(--line);
+    border-radius:10px; padding:9px 14px; cursor:pointer; }
+  button:hover { border-color:#3b414c; }
+  button.primary { background:#123447; border-color:#1d5d80; color:#bfe8ff; }
+  button.rec { background:#3a1414; border-color:#7a2626; color:#ffd0d0; }
+  button.rec.on { background:#b3261e; color:#fff; }
+  button:disabled { opacity:.45; cursor:default; }
+  main { padding:12px 14px 40px; max-width:1100px; margin:0 auto; }
+  .banner { background:#3a2a0c; border:1px solid #6b4d12; color:#ffe1a6; border-radius:10px; padding:10px 12px; margin-bottom:12px; font-size:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+  .g { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-height:84px; }
+  .g .l { color:var(--muted); font-size:13px; }
+  .g .v { font-size:34px; font-weight:600; font-variant-numeric:tabular-nums; line-height:1.15; margin-top:2px; }
+  .g .u { font-size:14px; color:var(--muted); font-weight:400; margin-left:3px; }
+  .g.big .v { font-size:44px; }
+  .g.ok .v { color:var(--ok); } .g.warn .v { color:var(--warn); } .g.bad .v { color:var(--bad); }
+  .g.stale .v { opacity:.4; }
+  section.panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:12px; }
+  section.panel h2 { font-size:15px; margin:0 0 10px; font-weight:600; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .muted { color:var(--muted); font-size:13px; }
+  input[type=text], select { font:inherit; font-size:15px; color:var(--text); background:var(--card2); border:1px solid var(--line);
+    border-radius:10px; padding:8px 10px; }
+  input[type=text] { width:150px; }
+  canvas { width:100%; display:block; background:var(--card2); border-radius:10px; }
+  .codes { margin-top:8px; font-size:15px; }
+  .codes .code { display:inline-block; font-family:ui-monospace,Menlo,monospace; background:var(--card2); border:1px solid var(--line);
+    border-radius:8px; padding:3px 8px; margin:3px 4px 0 0; }
+  pre#log { max-height:260px; overflow:auto; font:12px/1.35 ui-monospace,Menlo,monospace; color:#b9c0c8; background:var(--card2);
+    padding:8px; border-radius:8px; white-space:pre-wrap; margin:8px 0 0; }
+  details summary { cursor:pointer; color:var(--muted); font-size:14px; }
+  label.chk { font-size:14px; color:var(--muted); display:inline-flex; gap:6px; align-items:center; }
+  .timer { font-variant-numeric:tabular-nums; font-size:15px; }
+  [hidden] { display:none !important; }
+  @media (max-width:600px) { header { position:static; } .g .v { font-size:30px; } .g.big .v { font-size:40px; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>XJ Diag</h1>
+    <div class="sub">Live OBD2 logger · 2001 Cherokee 4.6 stroker · JTEC+</div>
+  </div>
+  <div class="spacer"></div>
+  <span id="status" class="status">Not connected</span>
+  <button id="btnConnect" class="primary">Connect dongle</button>
+  <button id="btnSim">Simulator</button>
+  <button id="btnDisconnect" hidden disabled>Disconnect</button>
+</header>
+
+<main>
+  <div id="noBt" class="banner" hidden>
+    This browser can't use Bluetooth from a web page. On a Mac use Chrome; on iPhone use the free Bluefy browser.
+    The page must be opened over https:// (or http://localhost for testing). The Simulator works anywhere.
+  </div>
+  <div id="recover" class="banner" hidden>
+    A recording from an earlier session was saved. <button id="btnRecover">Load it</button>
+    <button id="btnDiscard">Discard</button>
+  </div>
+
+  <div id="gauges" class="grid"></div>
+
+  <section class="panel">
+    <h2>Recording</h2>
+    <div class="row">
+      <button id="btnRec" class="rec" disabled>Start recording</button>
+      <span class="timer" id="recTimer">0:00</span>
+      <span class="muted" id="recRows">0 rows</span>
+      <span class="spacer"></span>
+      <input id="markText" type="text" value="pull" aria-label="Marker label">
+      <button id="btnMark" disabled>Add marker</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnCsv" disabled>Export CSV</button>
+      <button id="btnCopy" disabled>Copy CSV</button>
+      <button id="btnClearRec" disabled>Clear recording</button>
+      <label class="btn" style="font-size:15px">Load CSV<input id="fileCsv" type="file" accept=".csv,text/csv" hidden></label>
+    </div>
+    <div class="muted" style="margin-top:6px">The screen is kept awake while recording. The recording is saved in this browser every 10 seconds.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Live (last 60 s)</h2>
+    <canvas id="live" height="300"></canvas>
+  </section>
+
+  <section class="panel">
+    <h2>Review recording vs rpm</h2>
+    <div class="row">
+      <select id="revChan" aria-label="Channel"></select>
+      <label class="chk"><input id="revWot" type="checkbox" checked> Throttle above 70% only</label>
+    </div>
+    <canvas id="review" height="300" style="margin-top:8px"></canvas>
+    <div class="muted" id="revNote" style="margin-top:6px">Record a full-throttle pull, then stop recording to review it here.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Trouble codes</h2>
+    <div class="row">
+      <button id="btnCodes" disabled>Read codes</button>
+      <button id="btnClearCodes" disabled>Clear codes</button>
+    </div>
+    <div id="codes" class="codes muted">Not read yet.</div>
+  </section>
+
+  <section class="panel">
+    <details>
+      <summary>Adapter details and raw log</summary>
+      <div class="row" style="margin-top:8px">
+        <label class="chk"><input id="showAll" type="checkbox"> Show all Bluetooth devices when connecting</label>
+        <button id="btnCopyLog">Copy log</button>
+      </div>
+      <div class="muted" id="adapterInfo" style="margin-top:6px"></div>
+      <pre id="log"></pre>
+    </details>
+  </section>
+</main>
+
+<script>
+'use strict';
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const delay = ms => new Promise(r => setTimeout(r, ms));
+const hex2 = n => n.toString(16).toUpperCase().padStart(2, '0');
+const LOG = [];
+let logDirty = false;
+function log(dir, text) {
+  const t = new Date().toISOString().slice(11, 23);
+  LOG.push(`${t} ${dir} ${String(text).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}`);
+  if (LOG.length > 600) LOG.splice(0, LOG.length - 600);
+  logDirty = true;
+}
+function setStatus(text, cls = '') { const el = $('#status'); el.textContent = text; el.className = 'status ' + cls; }
+
+/* ---------- Bluetooth LE transport (ELM327-style BLE serial) ---------- */
+const SERVICES = [0xfff0, 0xffe0, 0x18f0, 'e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
+class BleTransport {
+  constructor() { this.device = null; this.rx = null; this.tx = null; this.manual = false; this.ondata = null; this.ondisconnect = null; }
+  get connected() { return !!(this.device && this.device.gatt && this.device.gatt.connected); }
+  async request(showAll) {
+    const opts = showAll
+      ? { acceptAllDevices: true, optionalServices: SERVICES }
+      : { filters: [{ namePrefix: 'VEEPEAK' }, { namePrefix: 'Veepeak' }, { namePrefix: 'OBD' },
+                    { services: [0xfff0] }, { services: [0xffe0] }], optionalServices: SERVICES };
+    this.device = await navigator.bluetooth.requestDevice(opts);
+    this.device.addEventListener('gattserverdisconnected', () => this.ondisconnect && this.ondisconnect(this.manual));
+  }
+  async connect() {
+    this.manual = false;
+    const server = await this.device.gatt.connect();
+    for (const uuid of SERVICES) {
+      let svc;
+      try { svc = await server.getPrimaryService(uuid); } catch (e) { continue; }
+      const chars = await svc.getCharacteristics();
+      const rx = chars.find(c => c.properties.notify || c.properties.indicate);
+      const tx = chars.find(c => c.properties.writeWithoutResponse || c.properties.write);
+      if (rx && tx) {
+        this.rx = rx; this.tx = tx;
+        await rx.startNotifications();
+        const dec = new TextDecoder();
+        rx.addEventListener('characteristicvaluechanged', e => this.ondata && this.ondata(dec.decode(e.target.value)));
+        $('#adapterInfo').textContent = `Device: ${this.device.name || '(no name)'} · service ${svc.uuid} · rx ${rx.uuid} · tx ${tx.uuid}`;
+        return;
+      }
+    }
+    throw new Error('No serial service found on this Bluetooth device');
+  }
+  async send(text) {
+    const data = new TextEncoder().encode(text);
+    for (let i = 0; i < data.length; i += 20) {
+      const chunk = data.slice(i, i + 20);
+      if (this.tx.properties.writeWithoutResponse) await this.tx.writeValueWithoutResponse(chunk);
+      else await this.tx.writeValue(chunk);
+    }
+  }
+  disconnect() { this.manual = true; if (this.connected) this.device.gatt.disconnect(); }
+}
+
+/* ---------- Simulator transport (fake ELM327 + engine) ---------- */
+class SimTransport {
+  constructor() {
+    this.isSim = true; this.on = false; this.echo = true; this.spaces = true; this.searched = false;
+    this.t0 = performance.now(); this.ondata = null; this.ondisconnect = null;
+    this.sup = [0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x11, 0x13, 0x14, 0x15, 0x18, 0x19, 0x1C, 0x20, 0x21];
+  }
+  get connected() { return this.on; }
+  async request() {}
+  async connect() { await delay(250); this.on = true; $('#adapterInfo').textContent = 'Device: simulator (fake ELM327 on SAE J1850 VPW)'; }
+  disconnect() { this.on = false; if (this.ondisconnect) this.ondisconnect(true); }
+  async send(text) {
+    if (!this.on) throw new Error('Simulator not connected');
+    const cmd = text.trim().toUpperCase().replace(/\s+/g, '');
+    const resp = this.respond(cmd);
+    const out = (this.echo ? cmd + '\r' : '') + resp + '\r\r>';
+    const wait = cmd.startsWith('AT') ? 12 : 55 + Math.random() * 35;
+    setTimeout(() => {
+      const k = Math.floor(out.length / 2);
+      this.ondata && this.ondata(out.slice(0, k));
+      setTimeout(() => this.ondata && this.ondata(out.slice(k)), 4);
+    }, wait);
+  }
+  fmt(bytes) { return bytes.map(b => hex2(Math.max(0, Math.min(255, Math.round(b))))).join(this.spaces ? ' ' : ''); }
+  bitmap(base) {
+    const b = [0, 0, 0, 0];
+    for (const p of this.sup) if (p > base && p <= base + 32) { const n = p - base - 1; b[n >> 3] |= 0x80 >> (n & 7); }
+    return b;
+  }
+  engine() {
+    const t = ((performance.now() - this.t0) / 1000) % 60;
+    const n = a => (Math.random() - 0.5) * a;
+    const osc = ph => 0.45 + 0.38 * Math.sin(t * 2 * Math.PI * 1.1 + ph) + n(0.04);
+    let e;
+    if (t < 15 || t >= 44) e = { rpm: 720 + n(30), map: 33 + n(2), tps: 0, mph: 0, loop: 2, adv: 12 + n(2), o2a: osc(0), o2b: osc(1.3) };
+    else if (t < 30) e = { rpm: 2050 + n(60), map: 56 + n(3), tps: 17 + n(2), mph: 45 + n(1), loop: 2, adv: 30 + n(2), o2a: osc(0), o2b: osc(1.3) };
+    else if (t < 38) {
+      const f = (t - 30) / 8, rpm = 1500 + f * 3100 + n(40);
+      const lean = rpm > 2500 ? (rpm - 2500) / 2100 * 0.27 : 0;
+      e = { rpm, map: 97 + n(1), tps: 100, mph: 30 + f * 42, loop: 4, adv: 17 + f * 7 + n(1), o2a: 0.88 - lean + n(0.02), o2b: 0.87 - lean * 0.85 + n(0.02) };
+    } else { const f = (t - 38) / 6; e = { rpm: 4500 - f * 3700, map: 20 + n(2), tps: 0, mph: 72 - f * 20, loop: 4, adv: 35, o2a: 0.07, o2b: 0.08 }; }
+    e.stft = e.loop === 2 ? n(10) : 0; e.ltft = 8 + n(0.5);
+    return e;
+  }
+  pid(p) {
+    if (!this.sup.includes(p) && p !== 0x00) return null;
+    const e = this.engine();
+    const trim = v => v * 128 / 100 + 128;
+    switch (p) {
+      case 0x00: case 0x20: return this.bitmap(p);
+      case 0x01: return [0x00, 0x07, 0xE5, 0x00];
+      case 0x03: return [e.loop, 0];
+      case 0x04: return [e.map / 100 * 255 * 0.92];
+      case 0x05: return [(196 - 32) / 1.8 + 40];
+      case 0x06: return [trim(e.stft)];
+      case 0x07: return [trim(e.ltft)];
+      case 0x0B: return [e.map];
+      case 0x0C: { const r = Math.round(e.rpm * 4); return [r >> 8, r & 255]; }
+      case 0x0D: return [e.mph / 0.621371];
+      case 0x0E: return [(e.adv + 64) * 2];
+      case 0x0F: return [(86 - 32) / 1.8 + 40];
+      case 0x11: return [e.tps * 255 / 100];
+      case 0x13: return [0x33];
+      case 0x14: return [e.o2a * 200, trim(e.stft)];
+      case 0x15: return [0.66 * 200 + (Math.random() - 0.5) * 6, 0xFF];
+      case 0x18: return [e.o2b * 200, trim(e.stft)];
+      case 0x19: return [0.63 * 200 + (Math.random() - 0.5) * 6, 0xFF];
+      case 0x1C: return [0x01];
+      case 0x21: return [0, 0];
+    }
+    return null;
+  }
+  respond(cmd) {
+    if (cmd === 'ATZ') { this.echo = true; this.spaces = true; this.searched = false; return '\rELM327 v1.5'; }
+    if (cmd === 'ATE0') { this.echo = false; return 'OK'; }
+    if (cmd === 'ATE1') { this.echo = true; return 'OK'; }
+    if (cmd === 'ATS0') { this.spaces = false; return 'OK'; }
+    if (cmd === 'ATS1') { this.spaces = true; return 'OK'; }
+    if (cmd === 'ATDPN') return 'A2';
+    if (cmd === 'ATRV') return (13.8 + Math.random() * 0.3).toFixed(1) + 'V';
+    if (cmd === 'ATI') return 'ELM327 v1.5';
+    if (cmd.startsWith('AT')) return 'OK';
+    const mode = cmd.slice(0, 2);
+    if (mode === '03') return this.fmt([0x43, 0, 0, 0, 0, 0, 0]);
+    if (mode === '07') return this.fmt([0x47, 0x01, 0x71, 0, 0, 0, 0]);
+    if (mode === '04') return this.fmt([0x44]);
+    if (mode === '01' && cmd.length >= 4) {
+      const p = parseInt(cmd.slice(2, 4), 16);
+      const d = this.pid(p);
+      const pre = this.searched ? '' : 'SEARCHING...\r';
+      this.searched = true;
+      return d ? pre + this.fmt([0x41, p, ...d]) : pre + 'NO DATA';
+    }
+    return '?';
+  }
+}
+
+/* ---------- ELM327 command layer ---------- */
+const PROTOCOLS = { '1': 'SAE J1850 PWM', '2': 'SAE J1850 VPW', '3': 'ISO 9141-2', '4': 'ISO 14230-4 KWP (5 baud)',
+  '5': 'ISO 14230-4 KWP (fast)', '6': 'CAN 11-bit 500k', '7': 'CAN 29-bit 500k', '8': 'CAN 11-bit 250k', '9': 'CAN 29-bit 250k' };
+function cleanLines(raw, cmd) {
+  return raw.split(/[\r\n]+/).map(s => s.trim())
+    .filter(s => s && s.replace(/\s/g, '').toUpperCase() !== cmd && !/^SEARCHING/i.test(s) && !/^BUS INIT/i.test(s));
+}
+class Elm {
+  constructor(t) { this.t = t; this.buf = ''; this.pending = null; this.chain = Promise.resolve(); this.proto = ''; t.ondata = d => this.onData(d); }
+  onData(d) {
+    log('<', d);
+    this.buf += d;
+    if (!this.pending) return;
+    const i = this.buf.indexOf('>');
+    if (i < 0) return;
+    const raw = this.buf.slice(0, i);
+    this.buf = this.buf.slice(i + 1);
+    const p = this.pending; this.pending = null; clearTimeout(p.timer); p.resolve(raw);
+  }
+  cmd(c, timeout = 2500) {
+    const run = () => new Promise((resolve, reject) => {
+      this.buf = '';
+      const timer = setTimeout(() => { this.pending = null; reject(new Error('Timeout waiting for ' + c)); }, timeout);
+      this.pending = { resolve, timer };
+      log('>', c);
+      this.t.send(c + '\r').catch(err => { clearTimeout(timer); this.pending = null; reject(err); });
+    }).then(raw => cleanLines(raw, c));
+    const p = this.chain.then(run, run);
+    this.chain = p.catch(() => {});
+    return p;
+  }
+  async init() {
+    await this.cmd('ATZ', 5000).catch(e => log('!', e.message));
+    await delay(200);
+    for (const c of ['ATE0', 'ATL0', 'ATS0', 'ATH0', 'ATAT1', 'ATSP0']) await this.cmd(c).catch(e => log('!', e.message));
+  }
+  get isCan() { return /^A?[6-9]$/.test(this.proto); }
+}
+function hexBytes(line) {
+  const h = line.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  const out = [];
+  for (let i = 0; i + 2 <= h.length; i += 2) out.push(parseInt(h.substr(i, 2), 16));
+  return out;
+}
+function parse01(lines, pid) {
+  for (const l of lines) {
+    if (/NO DATA|ERROR|STOPPED|UNABLE|\?/i.test(l)) continue;
+    const b = hexBytes(l);
+    for (let i = 0; i + 1 < b.length; i++) if (b[i] === 0x41 && b[i + 1] === pid) return b.slice(i + 2);
+  }
+  return null;
+}
+function decodeDTC(a, b) { return 'PCBU'[a >> 6] + ((a >> 4) & 3) + (a & 15).toString(16).toUpperCase() + hex2(b); }
+function parseDTCs(lines, respMode, isCan) {
+  const codes = [];
+  for (const l of lines) {
+    let b = hexBytes(l);
+    const i = b.indexOf(respMode);
+    if (i < 0) continue;
+    b = b.slice(i + 1 + (isCan ? 1 : 0));
+    for (let j = 0; j + 1 < b.length; j += 2) if (b[j] || b[j + 1]) codes.push(decodeDTC(b[j], b[j + 1]));
+  }
+  return [...new Set(codes)];
+}
+
+/* ---------- channels ---------- */
+const trimDec = b => (b[0] - 128) * 100 / 128;
+const PID_DEFS = {
+  0x0C: { key: 'rpm', fast: true, dec: b => (b[0] * 256 + b[1]) / 4 },
+  0x0B: { key: 'map', fast: true, dec: b => b[0] },
+  0x11: { key: 'tps', fast: true, dec: b => b[0] * 100 / 255 },
+  0x0E: { key: 'timing', fast: true, dec: b => b[0] / 2 - 64 },
+  0x06: { key: 'stft1', dec: trimDec }, 0x07: { key: 'ltft1', dec: trimDec },
+  0x08: { key: 'stft2', dec: trimDec }, 0x09: { key: 'ltft2', dec: trimDec },
+  0x03: { key: 'loop', dec: b => b[0] },
+  0x0D: { key: 'speed', dec: b => b[0] * 0.621371 },
+  0x04: { key: 'load', dec: b => b[0] * 100 / 255 },
+  0x05: { key: 'ect', dec: b => (b[0] - 40) * 1.8 + 32 },
+  0x0F: { key: 'iat', dec: b => (b[0] - 40) * 1.8 + 32 },
+};
+const LOOP_TEXT = { 1: 'Open · warm-up', 2: 'Closed', 4: 'Open · load', 8: 'Open · fault', 16: 'Closed · fault' };
+const GAUGE_DEFS = [
+  { key: 'rpm', label: 'RPM', unit: '', d: 0, big: true },
+  { key: 'map', label: 'MAP', unit: 'kPa', d: 0, big: true },
+  { key: 'tps', label: 'Throttle', unit: '%', d: 0 },
+  { key: 'timing', label: 'Timing advance', unit: '°', d: 1 },
+  { key: 'stft1', label: 'Short trim B1', unit: '%', d: 1, cls: trimCls },
+  { key: 'ltft1', label: 'Long trim B1', unit: '%', d: 1, cls: trimCls },
+  { key: 'stft2', label: 'Short trim B2', unit: '%', d: 1, cls: trimCls },
+  { key: 'ltft2', label: 'Long trim B2', unit: '%', d: 1, cls: trimCls },
+  { key: 'loop', label: 'Fuel loop', unit: '', fmt: v => LOOP_TEXT[v] || ('code ' + v), small: true },
+  { key: 'speed', label: 'Speed', unit: 'mph', d: 0 },
+  { key: 'load', label: 'Load', unit: '%', d: 0 },
+  { key: 'ect', label: 'Coolant', unit: '°F', d: 0, cls: v => v > 225 ? 'bad' : v > 215 ? 'warn' : '' },
+  { key: 'iat', label: 'Intake air', unit: '°F', d: 0 },
+  { key: 'batt', label: 'Battery', unit: 'V', d: 1 },
+  { key: 'rate', label: 'Read rate', unit: '/s', d: 1 },
+];
+function trimCls(v) { const a = Math.abs(v); return a >= 15 ? 'bad' : a >= 10 ? 'warn' : ''; }
+function o2Cls(v) { return (S.tps >= 70 && S.rpm > 1500) ? (v < 0.6 ? 'bad' : v < 0.8 ? 'warn' : 'ok') : ''; }
+
+let transport = null, elm = null, polling = false, fast = [], slow = [], o2Keys = [];
+const S = {};           // latest values
+const SEEN = {};        // last update time per key
+let okCount = 0, rateT = performance.now();
+
+function o2Name(idx) { return `O2 B${idx < 4 ? 1 : 2}S${(idx % 4) + 1}`; }
+async function readSupported() {
+  const sup = new Set();
+  for (const base of [0x00, 0x20, 0x40]) {
+    if (base > 0 && !sup.has(base)) break;
+    let b = null;
+    try { b = parse01(await elm.cmd('01' + hex2(base), base === 0 ? 15000 : 4000), base); } catch (e) { log('!', e.message); }
+    if (!b || b.length < 4) break;
+    for (let i = 0; i < 32; i++) if (b[i >> 3] & (0x80 >> (i & 7))) sup.add(base + i + 1);
+  }
+  return sup;
+}
+async function buildChannels(sup) {
+  fast = []; slow = []; o2Keys = [];
+  for (const [pid, def] of Object.entries(PID_DEFS)) {
+    const p = +pid;
+    if (!sup.has(p)) continue;
+    const ch = { cmd: '01' + hex2(p), pid: p, key: def.key, dec: def.dec };
+    (def.fast ? fast : slow).push(ch);
+  }
+  // O2 sensors: PID 13 tells which of PIDs 14-1B exist
+  let present = [];
+  if (sup.has(0x13)) {
+    try { const b = parse01(await elm.cmd('0113'), 0x13); if (b) for (let i = 0; i < 8; i++) if (b[0] & (1 << i)) present.push(i); } catch (e) { log('!', e.message); }
+  }
+  if (!present.length) for (let i = 0; i < 8; i++) if (sup.has(0x14 + i)) present.push(i);
+  for (const i of present) {
+    const key = 'o2_' + o2Name(i).slice(3).toLowerCase();
+    const ch = { cmd: '01' + hex2(0x14 + i), pid: 0x14 + i, key, label: o2Name(i), dec: b => b[0] / 200, upstream: i % 4 === 0 };
+    o2Keys.push({ key, label: o2Name(i), upstream: ch.upstream });
+    (ch.upstream ? fast : slow).push(ch);
+  }
+  slow.push({ cmd: 'ATRV', key: 'batt', parse: lines => parseFloat(lines[0]) });
+  // order fast list: rpm, map, tps, upstream O2s, timing
+  const order = ['rpm', 'map', 'tps'];
+  fast.sort((a, b) => (order.includes(a.key) ? order.indexOf(a.key) : 5) - (order.includes(b.key) ? order.indexOf(b.key) : 5));
+  buildGauges();
+  buildReviewChannels();
+}
+async function query(ch) {
+  const lines = await elm.cmd(ch.cmd, 2500);
+  let v = null;
+  if (ch.parse) v = ch.parse(lines);
+  else { const b = parse01(lines, ch.pid); if (b && b.length) v = ch.dec(b); }
+  if (v === null || Number.isNaN(v)) return;
+  S[ch.key] = v; SEEN[ch.key] = performance.now(); okCount++;
+}
+async function pollLoop() {
+  let si = 0, errs = 0;
+  const myElm = elm;
+  while (polling && elm === myElm) {
+    try {
+      for (const ch of fast) { if (!polling) break; await query(ch); }
+      if (slow.length && polling) await query(slow[si++ % slow.length]);
+      sample();
+      errs = 0;
+    } catch (e) {
+      log('!', e.message);
+      if (!transport || !transport.connected) break;
+      if (++errs >= 5) { setStatus('No response from the Jeep — is the ignition on?', 'warn'); await delay(1000); }
+      await delay(150);
+    }
+  }
+}
+
+/* ---------- live buffer + recording ---------- */
+const LIVE = []; // {t, ...}
+let rec = { rows: [], start: 0, on: false }, pendingMark = '', wakeLock = null, lastSave = 0;
+function snapshot() {
+  const o = {};
+  for (const k of Object.keys(S)) o[k] = S[k];
+  return o;
+}
+function sample() {
+  const now = performance.now() / 1000;
+  const s = snapshot(); s.t = now;
+  LIVE.push(s);
+  while (LIVE.length && LIVE[0].t < now - 62) LIVE.shift();
+  if (rec.on) {
+    const r = snapshot();
+    r.t = (Date.now() - rec.start) / 1000;
+    r.mark = pendingMark; pendingMark = '';
+    rec.rows.push(r);
+    if (Date.now() - lastSave > 10000) saveRec();
+  }
+}
+function saveRec() {
+  lastSave = Date.now();
+  try { localStorage.setItem('xjdiag.rec', JSON.stringify({ start: rec.start, rows: rec.rows, o2Keys })); }
+  catch (e) { log('!', 'Autosave failed: ' + e.message); }
+}
+async function keepAwake(on) {
+  try {
+    if (on && 'wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); }
+    else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch (e) { log('!', 'Wake lock: ' + e.message); }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && rec.on) keepAwake(true); });
+
+const COLS = [['rpm', 'rpm'], ['map', 'map_kpa'], ['tps', 'tps_pct'], ['timing', 'timing_deg'],
+  ['stft1', 'stft_b1_pct'], ['ltft1', 'ltft_b1_pct'], ['stft2', 'stft_b2_pct'], ['ltft2', 'ltft_b2_pct'],
+  ['loop', 'fuel_status'], ['speed', 'speed_mph'], ['load', 'load_pct'], ['ect', 'coolant_f'], ['iat', 'intake_air_f'], ['batt', 'battery_v']];
+function csvColumns(rows) {
+  const keys = new Set(); rows.forEach(r => Object.keys(r).forEach(k => keys.add(k)));
+  const cols = [['t', 't_s']];
+  for (const c of COLS) if (keys.has(c[0])) cols.push(c);
+  for (const k of [...keys].filter(k => k.startsWith('o2_')).sort()) cols.push([k, k + '_v']);
+  cols.push(['mark', 'mark']);
+  return cols;
+}
+function toCSV(rows) {
+  const cols = csvColumns(rows);
+  const out = [cols.map(c => c[1]).join(',')];
+  for (const r of rows) out.push(cols.map(([k]) => {
+    const v = r[k];
+    if (v === undefined || v === null || v === '') return '';
+    if (typeof v === 'number') return Number.isInteger(v) ? v : v.toFixed(3);
+    return '"' + String(v).replace(/"/g, '""') + '"';
+  }).join(','));
+  return out.join('\n') + '\n';
+}
+function fromCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const head = lines.shift().split(',');
+  const back = Object.fromEntries([['t_s', 't'], ...COLS.map(c => [c[1], c[0]])]);
+  const keys = head.map(h => back[h] || (h.endsWith('_v') && h.startsWith('o2_') ? h.slice(0, -2) : h));
+  return lines.map(l => {
+    const cells = l.match(/("([^"]|"")*"|[^,]*)(,|$)/g).map(c => c.replace(/,$/, ''));
+    const r = {};
+    keys.forEach((k, i) => { const c = cells[i]; if (c === undefined || c === '') return; r[k] = c.startsWith('"') ? c.slice(1, -1).replace(/""/g, '"') : +c; });
+    return r;
+  });
+}
+function fileName() { const d = new Date(rec.start || Date.now()); const p = n => String(n).padStart(2, '0'); return `xj-log-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.csv`; }
+
+/* ---------- UI: gauges ---------- */
+function buildGauges() {
+  const wrap = $('#gauges'); wrap.innerHTML = '';
+  const defs = GAUGE_DEFS.slice();
+  // insert O2 gauges after timing
+  const at = defs.findIndex(d => d.key === 'timing') + 1;
+  const o2defs = (o2Keys.length ? o2Keys : [{ key: 'o2_b1s1', label: 'O2 B1S1', upstream: true }])
+    .map(o => ({ key: o.key, label: o.label + (o.upstream ? ' (upstream)' : ''), unit: 'V', d: 2, cls: o.upstream ? o2Cls : null }));
+  defs.splice(at, 0, ...o2defs);
+  for (const g of defs) {
+    if (elm && !['rate'].includes(g.key) && !fast.concat(slow).some(c => c.key === g.key)) continue;
+    const el = document.createElement('div');
+    el.className = 'g' + (g.big ? ' big' : '');
+    el.dataset.key = g.key;
+    el.innerHTML = `<div class="l">${g.label}</div><div class="v" ${g.small ? 'style="font-size:22px"' : ''}>–<span class="u">${g.unit}</span></div>`;
+    el._def = g;
+    wrap.appendChild(el);
+  }
+}
+function renderGauges() {
+  const now = performance.now();
+  if (now - rateT >= 1000) { S.rate = okCount * 1000 / (now - rateT); okCount = 0; rateT = now; SEEN.rate = now; }
+  for (const el of $('#gauges').children) {
+    const g = el._def, v = S[g.key];
+    const vEl = el.querySelector('.v');
+    if (v === undefined) continue;
+    const txt = g.fmt ? g.fmt(v) : v.toFixed(g.d);
+    vEl.firstChild.nodeValue = txt;
+    const cls = g.cls ? g.cls(v) : '';
+    const stale = SEEN[g.key] && now - SEEN[g.key] > 8000;
+    el.className = 'g' + (g.big ? ' big' : '') + (cls ? ' ' + cls : '') + (stale ? ' stale' : '');
+  }
+}
+
+/* ---------- UI: charts ---------- */
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function fitCanvas(c) {
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = +c.getAttribute('height');
+  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); c.style.height = h + 'px'; }
+  const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+function drawLive() {
+  const { ctx, w, h } = fitCanvas($('#live'));
+  ctx.clearRect(0, 0, w, h);
+  const ups = o2Keys.filter(o => o.upstream).map(o => o.key);
+  const strips = [
+    { label: 'RPM', min: 0, max: 5000, s: [['rpm', css('--c1')]] },
+    { label: 'MAP kPa', min: 0, max: 105, s: [['map', css('--c2')]] },
+    { label: 'Upstream O2 V', min: 0, max: 1, s: (ups.length ? ups : ['o2_b1s1']).map((k, i) => [k, i ? css('--c4') : css('--c3')]) },
+    { label: 'Timing °', min: 0, max: 45, s: [['timing', css('--c1')]] },
+  ];
+  const sh = h / strips.length, now = performance.now() / 1000, x0 = 8, x1 = w - 8;
+  ctx.font = '12px -apple-system,Segoe UI,sans-serif';
+  strips.forEach((st, i) => {
+    const top = i * sh + 4, bot = (i + 1) * sh - 4;
+    ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0, bot + 3.5); ctx.lineTo(x1, bot + 3.5); ctx.stroke();
+    for (const [key, color] of st.s) {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.beginPath();
+      let started = false;
+      for (const p of LIVE) {
+        const v = p[key]; if (v === undefined) continue;
+        const x = x0 + (x1 - x0) * (1 - (now - p.t) / 60);
+        const y = bot - (bot - top) * Math.max(0, Math.min(1, (v - st.min) / (st.max - st.min)));
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.fillStyle = css('--muted');
+    const last = LIVE.length ? LIVE[LIVE.length - 1] : {};
+    const vals = st.s.map(([k]) => last[k] !== undefined ? (st.max <= 1 ? last[k].toFixed(2) : Math.round(last[k])) : '–').join(' / ');
+    ctx.fillText(`${st.label}  ${vals}`, x0 + 4, top + 12);
+  });
+}
+function buildReviewChannels() {
+  const sel = $('#revChan'), cur = sel.value;
+  const opts = [...o2Keys.map(o => [o.key, o.label + ' (V)']), ['map', 'MAP (kPa)'], ['timing', 'Timing advance (°)'],
+    ['stft1', 'Short trim B1 (%)'], ['ltft1', 'Long trim B1 (%)'], ['tps', 'Throttle (%)'], ['speed', 'Speed (mph)']];
+  if (!o2Keys.length) opts.unshift(['o2_b1s1', 'O2 B1S1 (V)']);
+  sel.innerHTML = opts.map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+function drawReview() {
+  const { ctx, w, h } = fitCanvas($('#review'));
+  ctx.clearRect(0, 0, w, h);
+  const key = $('#revChan').value, wot = $('#revWot').checked;
+  const pts = rec.rows.filter(r => r.rpm !== undefined && r[key] !== undefined && (!wot || (r.tps || 0) >= 70));
+  $('#revNote').textContent = rec.rows.length
+    ? `${pts.length} of ${rec.rows.length} rows shown.` + (key.startsWith('o2_') ? ' At full throttle the upstream O2 should hold above ~0.8 V; below ~0.6 V means lean.' : '')
+    : 'Record a full-throttle pull, then stop recording to review it here.';
+  const L = 46, R = w - 12, T = 12, B = h - 28;
+  let ymin, ymax;
+  if (key.startsWith('o2_')) { ymin = 0; ymax = 1; }
+  else if (pts.length) { ymin = Math.min(...pts.map(p => p[key])); ymax = Math.max(...pts.map(p => p[key])); const pad = (ymax - ymin) * 0.1 || 1; ymin -= pad; ymax += pad; }
+  else { ymin = 0; ymax = 1; }
+  const X = r => L + (R - L) * Math.min(1, r / 5000), Y = v => B - (B - T) * (v - ymin) / (ymax - ymin);
+  ctx.font = '12px -apple-system,Segoe UI,sans-serif'; ctx.fillStyle = css('--muted'); ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
+  for (let r = 0; r <= 5000; r += 1000) { ctx.beginPath(); ctx.moveTo(X(r), T); ctx.lineTo(X(r), B); ctx.stroke(); ctx.fillText(r, X(r) - (r === 5000 ? 30 : r ? 14 : 3), h - 10); }
+  for (let i = 0; i <= 4; i++) { const v = ymin + (ymax - ymin) * i / 4; ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(R, Y(v)); ctx.stroke(); ctx.fillText(Math.abs(ymax - ymin) <= 2 ? v.toFixed(2) : v.toFixed(0), 4, Y(v) + 4); }
+  if (key.startsWith('o2_')) { ctx.strokeStyle = css('--bad'); ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(L, Y(0.6)); ctx.lineTo(R, Y(0.6)); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.fillStyle = css('--c1');
+  for (const p of pts) { ctx.beginPath(); ctx.arc(X(p.rpm), Y(p[key]), 2.4, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = css('--muted'); ctx.fillText('rpm', R - 22, B - 4);
+}
+
+/* ---------- actions ---------- */
+function setConnectedUI(on) {
+  $('#btnConnect').hidden = on; $('#btnSim').hidden = on; $('#btnDisconnect').hidden = !on; $('#btnDisconnect').disabled = !on;
+  $('#btnRec').disabled = !on && !rec.on; $('#btnMark').disabled = !on;
+  $('#btnCodes').disabled = !on; $('#btnClearCodes').disabled = !on;
+}
+async function setupSession() {
+  setStatus('Starting adapter…');
+  await elm.init();
+  setStatus('Talking to the Jeep…');
+  const sup = await readSupported();
+  if (!sup.size) throw new Error('No answer from the engine computer. Is the ignition on?');
+  try { const p = await elm.cmd('ATDPN'); elm.proto = (p[0] || '').toUpperCase(); } catch (e) { log('!', e.message); }
+  await buildChannels(sup);
+  const pn = PROTOCOLS[elm.proto.replace('A', '')] || elm.proto;
+  setStatus(`Connected · ${pn}${transport.isSim ? ' (simulated)' : ''}`, 'ok');
+  setConnectedUI(true);
+  polling = true; pollLoop();
+}
+async function start(kind) {
+  if (kind === 'ble' && !navigator.bluetooth) { $('#noBt').hidden = false; return; }
+  transport = kind === 'sim' ? new SimTransport() : new BleTransport();
+  transport.ondisconnect = onDisconnect;
+  setStatus('Connecting…');
+  try {
+    if (kind === 'ble') await transport.request($('#showAll').checked);
+    await transport.connect();
+    elm = new Elm(transport);
+    await setupSession();
+  } catch (e) {
+    log('!', e.message);
+    setStatus(e.name === 'NotFoundError' ? 'No device chosen' : 'Error: ' + e.message, 'bad');
+    polling = false;
+    if (transport) { transport.ondisconnect = null; if (transport.connected) transport.disconnect(); }
+    setConnectedUI(false);
+  }
+}
+async function onDisconnect(manual) {
+  polling = false;
+  if (manual) { setStatus('Disconnected'); setConnectedUI(false); return; }
+  setConnectedUI(false);
+  setStatus('Connection lost — reconnecting…', 'warn');
+  if (rec.on) pendingMark = 'connection lost';
+  for (let i = 1; i <= 10; i++) {
+    await delay(2000);
+    if (transport.manual) return;
+    try {
+      await transport.connect();
+      elm = new Elm(transport);
+      await setupSession();
+      if (rec.on) pendingMark = 'reconnected';
+      return;
+    } catch (e) { log('!', `Reconnect ${i}: ${e.message}`); }
+  }
+  setStatus('Disconnected — tap Connect dongle', 'bad');
+}
+function toggleRec() {
+  if (!rec.on) {
+    if (rec.rows.length && !confirm('Start a new recording? The current one will be replaced (export it first if you need it).')) return;
+    rec = { rows: [], start: Date.now(), on: true };
+    keepAwake(true);
+    $('#btnRec').textContent = 'Stop recording'; $('#btnRec').classList.add('on');
+  } else {
+    rec.on = false; saveRec(); keepAwake(false);
+    $('#btnRec').textContent = 'Start recording'; $('#btnRec').classList.remove('on');
+    $('#btnRec').disabled = !(transport && transport.connected);
+    drawReview();
+  }
+  updateRecUI();
+}
+function updateRecUI() {
+  const n = rec.rows.length;
+  $('#recRows').textContent = `${n} rows`;
+  const s = rec.on ? (Date.now() - rec.start) / 1000 : (n ? rec.rows[n - 1].t : 0);
+  $('#recTimer').textContent = `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  $('#btnCsv').disabled = !n; $('#btnCopy').disabled = !n; $('#btnClearRec').disabled = !n || rec.on;
+}
+async function exportCSV() {
+  const csv = toCSV(rec.rows), name = fileName();
+  const blob = new Blob([csv], { type: 'text/csv' });
+  try {
+    const file = new File([blob], name, { type: 'text/csv' });
+    if (/iPhone|iPad|iPod/.test(navigator.userAgent) && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: name }); return;
+    }
+  } catch (e) { log('!', 'Share: ' + e.message); }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+async function copyText(text, btn) {
+  try { await navigator.clipboard.writeText(text); const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => btn.textContent = t, 1500); }
+  catch (e) { log('!', 'Clipboard: ' + e.message); alert('Copy failed in this browser. Use Export CSV instead.'); }
+}
+async function readCodes() {
+  const el = $('#codes'); el.textContent = 'Reading…';
+  try {
+    const stored = parseDTCs(await elm.cmd('03', 5000), 0x43, elm.isCan);
+    const pending = parseDTCs(await elm.cmd('07', 5000), 0x47, elm.isCan);
+    const part = (title, list) => `<div><b>${title}:</b> ${list.length ? list.map(c => `<span class="code">${c}</span>`).join('') : 'none'}</div>`;
+    el.className = 'codes';
+    el.innerHTML = part('Stored', stored) + part('Pending', pending);
+  } catch (e) { el.textContent = 'Could not read codes: ' + e.message; }
+}
+async function clearCodes() {
+  if (!confirm('Clear all trouble codes? This also resets the emissions readiness monitors, which take several drive cycles to complete again.')) return;
+  try { await elm.cmd('04', 5000); $('#codes').textContent = 'Codes cleared.'; } catch (e) { $('#codes').textContent = 'Clear failed: ' + e.message; }
+}
+
+/* ---------- wire up ---------- */
+$('#btnConnect').onclick = () => start('ble');
+$('#btnSim').onclick = () => start('sim');
+$('#btnDisconnect').onclick = () => { polling = false; if (transport) transport.disconnect(); };
+$('#btnRec').onclick = toggleRec;
+$('#btnMark').onclick = () => { pendingMark = $('#markText').value.trim() || 'mark'; };
+$('#btnCsv').onclick = exportCSV;
+$('#btnCopy').onclick = e => copyText(toCSV(rec.rows), e.target);
+$('#btnClearRec').onclick = () => { if (confirm('Delete the current recording?')) { rec = { rows: [], start: 0, on: false }; try { localStorage.removeItem('xjdiag.rec'); } catch (e) {} updateRecUI(); drawReview(); } };
+$('#fileCsv').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const rows = fromCSV(await f.text());
+    rec = { rows, start: f.lastModified || Date.now(), on: false };
+    const ok = new Set(); rows.forEach(r => Object.keys(r).forEach(k => k.startsWith('o2_') && ok.add(k)));
+    if (!elm) { o2Keys = [...ok].sort().map(k => ({ key: k, label: 'O2 ' + k.slice(3).toUpperCase(), upstream: /s1$/.test(k) })); buildReviewChannels(); }
+    updateRecUI(); drawReview();
+  } catch (err) { alert('Could not read that CSV: ' + err.message); }
+  e.target.value = '';
+};
+$('#btnCodes').onclick = readCodes;
+$('#btnClearCodes').onclick = clearCodes;
+$('#revChan').onchange = drawReview;
+$('#revWot').onchange = drawReview;
+$('#btnCopyLog').onclick = e => copyText(LOG.join('\n'), e.target);
+$('#btnRecover').onclick = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('xjdiag.rec'));
+    rec = { rows: saved.rows, start: saved.start, on: false };
+    if (!elm && saved.o2Keys) { o2Keys = saved.o2Keys; buildReviewChannels(); }
+    updateRecUI(); drawReview();
+  } catch (e) { log('!', e.message); }
+  $('#recover').hidden = true;
+};
+$('#btnDiscard').onclick = () => { try { localStorage.removeItem('xjdiag.rec'); } catch (e) {} $('#recover').hidden = true; };
+
+if (!navigator.bluetooth) $('#noBt').hidden = false;
+try { const s = JSON.parse(localStorage.getItem('xjdiag.rec') || 'null'); if (s && s.rows && s.rows.length) { $('#recover').hidden = false; $('#recover').firstChild.nodeValue = `A recording from an earlier session was saved (${s.rows.length} rows). `; } } catch (e) {}
+buildGauges(); buildReviewChannels(); drawReview();
+setInterval(() => {
+  renderGauges(); drawLive();
+  if (rec.on) updateRecUI();
+  if (logDirty && $('details').open) { const el = $('#log'); el.textContent = LOG.slice(-300).join('\n'); el.scrollTop = el.scrollHeight; logDirty = false; }
+}, 250);
+window.addEventListener('resize', drawReview);
+</script>
+</body>
+</html>

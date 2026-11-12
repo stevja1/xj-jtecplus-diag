@@ -169,16 +169,25 @@ async function stage(name, fn) {
   catch (e) { const err = new Error(`${name} failed: ${errText(e)}`); err.name = (e && e.name) || 'Error'; throw err; }
 }
 /* ---------- Bluetooth LE transport (ELM327-style BLE serial) ---------- */
-const SERVICES = [0xfff0, 0xffe0, 0x18f0, 'e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
+const u16 = n => `0000${n.toString(16).padStart(4, '0')}-0000-1000-8000-00805f9b34fb`;
+const SERVICES = [u16(0xfff0), u16(0xffe0), u16(0x18f0), 'e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
 class BleTransport {
   constructor() { this.device = null; this.rx = null; this.tx = null; this.manual = false; this.ondata = null; this.ondisconnect = null; }
   get connected() { return !!(this.device && this.device.gatt && this.device.gatt.connected); }
   async request(showAll) {
-    const opts = showAll
-      ? { acceptAllDevices: true, optionalServices: SERVICES }
-      : { filters: [{ namePrefix: 'VEEPEAK' }, { namePrefix: 'Veepeak' }, { namePrefix: 'OBD' },
-                    { services: [0xfff0] }, { services: [0xffe0] }], optionalServices: SERVICES };
-    this.device = await stage('requestDevice', () => navigator.bluetooth.requestDevice(opts));
+    const all = { acceptAllDevices: true, optionalServices: SERVICES };
+    const filtered = { filters: [{ namePrefix: 'VEEPEAK' }, { namePrefix: 'Veepeak' }, { namePrefix: 'OBD' },
+                                 { services: [SERVICES[0]] }, { services: [SERVICES[1]] }], optionalServices: SERVICES };
+    const req = o => navigator.bluetooth.requestDevice(o);
+    if (showAll) this.device = await stage('requestDevice', () => req(all));
+    else {
+      try { this.device = await req(filtered); }
+      catch (e) {
+        if (e && e.name === 'NotFoundError') return stage('requestDevice', () => Promise.reject(e));   // user cancelled the picker
+        log('!', `filtered requestDevice failed (${errText(e)}); retrying with all devices`);
+        this.device = await stage('requestDevice(all)', () => req(all));
+      }
+    }
     this.device.addEventListener('gattserverdisconnected', () => this.ondisconnect && this.ondisconnect(this.manual));
   }
   async connect() {

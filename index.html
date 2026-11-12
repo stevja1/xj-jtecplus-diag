@@ -157,6 +157,17 @@ function log(dir, text) {
 }
 function setStatus(text, cls = '') { const el = $('#status'); el.textContent = text; el.className = 'status ' + cls; }
 
+function errText(e) {
+  if (e == null) return String(e);
+  if (typeof e === 'string') return e;
+  const parts = [e.name, e.message].filter(Boolean);
+  if (parts.length) return parts.join(': ');
+  try { return JSON.stringify(e) || String(e); } catch (_) { return String(e); }
+}
+async function stage(name, fn) {
+  try { return await fn(); }
+  catch (e) { const err = new Error(`${name} failed: ${errText(e)}`); err.name = (e && e.name) || 'Error'; throw err; }
+}
 /* ---------- Bluetooth LE transport (ELM327-style BLE serial) ---------- */
 const SERVICES = [0xfff0, 0xffe0, 0x18f0, 'e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
 class BleTransport {
@@ -167,21 +178,21 @@ class BleTransport {
       ? { acceptAllDevices: true, optionalServices: SERVICES }
       : { filters: [{ namePrefix: 'VEEPEAK' }, { namePrefix: 'Veepeak' }, { namePrefix: 'OBD' },
                     { services: [0xfff0] }, { services: [0xffe0] }], optionalServices: SERVICES };
-    this.device = await navigator.bluetooth.requestDevice(opts);
+    this.device = await stage('requestDevice', () => navigator.bluetooth.requestDevice(opts));
     this.device.addEventListener('gattserverdisconnected', () => this.ondisconnect && this.ondisconnect(this.manual));
   }
   async connect() {
     this.manual = false;
-    const server = await this.device.gatt.connect();
+    const server = await stage('gatt.connect', () => this.device.gatt.connect());
     for (const uuid of SERVICES) {
       let svc;
-      try { svc = await server.getPrimaryService(uuid); } catch (e) { continue; }
-      const chars = await svc.getCharacteristics();
+      try { svc = await server.getPrimaryService(uuid); } catch (e) { log('!', `service ${uuid}: ${errText(e)}`); continue; }
+      const chars = await stage('getCharacteristics', () => svc.getCharacteristics());
       const rx = chars.find(c => c.properties.notify || c.properties.indicate);
       const tx = chars.find(c => c.properties.writeWithoutResponse || c.properties.write);
       if (rx && tx) {
         this.rx = rx; this.tx = tx;
-        await rx.startNotifications();
+        await stage('startNotifications', () => rx.startNotifications());
         const dec = new TextDecoder();
         rx.addEventListener('characteristicvaluechanged', e => this.ondata && this.ondata(dec.decode(e.target.value)));
         $('#adapterInfo').textContent = `Device: ${this.device.name || '(no name)'} · service ${svc.uuid} · rx ${rx.uuid} · tx ${tx.uuid}`;
@@ -675,8 +686,8 @@ async function start(kind) {
     elm = new Elm(transport);
     await setupSession();
   } catch (e) {
-    log('!', e.message);
-    setStatus(e.name === 'NotFoundError' ? 'No device chosen' : 'Error: ' + e.message, 'bad');
+    log('!', errText(e));
+    setStatus(e.name === 'NotFoundError' && /requestDevice/.test(e.message) ? 'No device chosen' : 'Error: ' + errText(e), 'bad');
     polling = false;
     if (transport) { transport.ondisconnect = null; if (transport.connected) transport.disconnect(); }
     setConnectedUI(false);
